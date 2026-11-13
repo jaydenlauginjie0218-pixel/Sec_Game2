@@ -323,6 +323,8 @@ Deno.serve(async (req: Request) => {
       const { data: team } = await supabase
         .from("teams").select("*").eq("id", teamId).maybeSingle();
       if (!team) return json({ error: "Team not found" }, 404);
+      if (team.pending_kolam)
+        return json({ error: "You are trapped by a Kolam puzzle! Solve it to roll again." }, 400);
       if (team.status === "pending" || team.status === "traveling")
         return json({ error: "You have a pending station visit" }, 400);
       if (team.status === "resting")
@@ -560,7 +562,7 @@ Deno.serve(async (req: Request) => {
 
     // ── SHOP PURCHASE ──
     if (action === "purchase") {
-      const { teamId, shopItemId, sessionToken } = body;
+      const { teamId, shopItemId, sessionToken, targetTeamId } = body;
       if (!teamId || !shopItemId) return json({ error: "Missing parameters" }, 400);
 
       if (sessionToken) {
@@ -581,6 +583,43 @@ Deno.serve(async (req: Request) => {
       if (team.balance < item.price)
         return json({ error: "Not enough Diyas" }, 400);
 
+      // ── Kolam trap: set pending_kolam on the target team ──
+      if (item.effect_type === "kolam") {
+        if (!targetTeamId) return json({ error: "Select a team to trap" }, 400);
+        if (targetTeamId === teamId) return json({ error: "You cannot trap yourself" }, 400);
+
+        const { data: target } = await supabase
+          .from("teams").select("*").eq("id", targetTeamId).maybeSingle();
+        if (!target) return json({ error: "Target team not found" }, 404);
+        if (target.pending_kolam)
+          return json({ error: `${target.name} is already trapped by a Kolam puzzle` }, 400);
+
+        const patternSeed = Math.floor(Math.random() * 1000000);
+        const correctTile = Math.floor(Math.random() * 4);
+
+        await supabase.from("teams").update({
+          pending_kolam: {
+            attacker_team_name: team.name,
+            pattern_seed: patternSeed,
+            correct_tile: correctTile,
+            created_at: new Date().toISOString(),
+          },
+        }).eq("id", targetTeamId);
+
+        await supabase.from("transactions").insert({
+          team_id: teamId, amount: -item.price, type: "shop",
+          note: `Purchased ${item.name} → trapped ${target.name}`,
+        });
+        await supabase.from("purchases").insert({
+          team_id: teamId, shop_item_id: shopItemId, price_paid: item.price,
+        });
+        await supabase.from("teams").update({
+          balance: team.balance - item.price,
+        }).eq("id", teamId);
+
+        return json({ success: true, newBalance: team.balance - item.price, item: item.name, trapped: target.name });
+      }
+
       await supabase.from("transactions").insert({
         team_id: teamId, amount: -item.price, type: "shop",
         note: `Purchased ${item.name}`,
@@ -593,6 +632,34 @@ Deno.serve(async (req: Request) => {
       }).eq("id", teamId);
 
       return json({ success: true, newBalance: team.balance - item.price, item: item.name });
+    }
+
+    // ── SOLVE KOLAM PUZZLE ──
+    if (action === "solve-kolam") {
+      const { teamId, sessionToken, selectedTile } = body;
+      if (!teamId) return json({ error: "Missing teamId" }, 400);
+
+      if (sessionToken) {
+        const { data: validId } = await supabase.rpc("validate_session", { p_token: sessionToken });
+        if (!validId || validId !== teamId) {
+          return json({ error: "Session expired — please log in again" }, 401);
+        }
+      }
+
+      const { data: team } = await supabase
+        .from("teams").select("*").eq("id", teamId).maybeSingle();
+      if (!team) return json({ error: "Team not found" }, 404);
+      if (!team.pending_kolam) return json({ error: "No active Kolam puzzle" }, 400);
+
+      const correct = team.pending_kolam.correct_tile;
+      const chosen = Number(selectedTile);
+
+      if (chosen === correct) {
+        await supabase.from("teams").update({ pending_kolam: null }).eq("id", teamId);
+        return json({ success: true, solved: true });
+      }
+
+      return json({ success: false, solved: false, correctTile: correct });
     }
 
     // ── ADMIN ADJUST BALANCE ──

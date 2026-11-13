@@ -44,6 +44,13 @@ export interface TeamTile {
 
 export type TeamStatus = 'idle' | 'rolling' | 'traveling' | 'pending' | 'resting';
 
+export interface PendingKolam {
+  attacker_team_name: string;
+  pattern_seed: number;
+  correct_tile: number;
+  created_at: string;
+}
+
 export interface Team {
   id: string;
   name: string;
@@ -54,6 +61,7 @@ export interface Team {
   password_hash: string | null;
   color: string;
   created_at: string;
+  pending_kolam: PendingKolam | null;
 }
 
 export type TurnStatus = 'pending' | 'completed' | 'expired';

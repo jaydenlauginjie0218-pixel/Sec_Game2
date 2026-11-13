@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { gameApi } from '@/lib/api';
-import type { ShopItem } from '@/lib/types';
+import type { ShopItem, Team } from '@/lib/types';
 import { DiyaIcon, DiyaBalance } from '@/components/DiyaIcon';
 import { StationIcon } from '@/components/StationIcon';
-import { X, CheckCircle2, Lock } from 'lucide-react';
+import { X, CheckCircle2, Lock, Target } from 'lucide-react';
 
 export function PlayerShop({
   teamId,
@@ -18,26 +18,48 @@ export function PlayerShop({
   onClose: () => void;
 }) {
   const [items, setItems] = useState<ShopItem[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
   const [purchasing, setPurchasing] = useState<string | null>(null);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [targetingItemId, setTargetingItemId] = useState<string | null>(null);
+  const [selectedTeamId, setSelectedTeamId] = useState<string>('');
 
   useEffect(() => {
     supabase.from('shop_items').select('*').eq('active', true).order('price').then(({ data }) => {
       if (data) setItems(data);
     });
-  }, []);
+    supabase.from('teams').select('*').neq('id', teamId).order('name').then(({ data }) => {
+      if (data) setTeams(data as Team[]);
+    });
+  }, [teamId]);
 
   async function handleBuy(item: ShopItem) {
+    if (item.effect_type === 'kolam') {
+      setTargetingItemId(item.id);
+      return;
+    }
+    await executePurchase(item);
+  }
+
+  async function executePurchase(item: ShopItem, targetTeamId?: string) {
     setPurchasing(item.id);
     setMessage(null);
     try {
-      const result = await gameApi.purchase(teamId, item.id, sessionToken);
-      setMessage({ ok: true, text: `Purchased ${result.item}! -${item.price} Diyas` });
-      onClose();
+      const result = await gameApi.purchase(teamId, item.id, sessionToken, targetTeamId);
+      const extra = result.trapped ? ` → trapped ${result.trapped}!` : '';
+      setMessage({ ok: true, text: `Purchased ${result.item}! -${item.price} Diyas${extra}` });
+      setTargetingItemId(null);
+      setSelectedTeamId('');
+      setTimeout(() => onClose(), 1500);
     } catch (err) {
       setMessage({ ok: false, text: (err as Error).message });
     }
     setPurchasing(null);
+  }
+
+  function confirmTarget(item: ShopItem) {
+    if (!selectedTeamId) return;
+    executePurchase(item, selectedTeamId);
   }
 
   return (
@@ -60,19 +82,52 @@ export function PlayerShop({
             </div>
           )}
 
+          {targetingItemId && (
+            <div className="rounded-xl border-2 border-gold-400/40 bg-maroon-800/60 p-4 space-y-3">
+              <div className="flex items-center gap-2 text-gold-100 font-display font-semibold">
+                <Target className="w-5 h-5 text-flame-300" /> Select Target Team
+              </div>
+              <select
+                value={selectedTeamId}
+                onChange={(e) => setSelectedTeamId(e.target.value)}
+                className="input-field"
+              >
+                <option value="">Choose a team to trap…</option>
+                {teams.map((t) => (
+                  <option key={t.id} value={t.id} disabled={!!t.pending_kolam}>
+                    {t.name}{t.pending_kolam ? ' (already trapped)' : ''}
+                  </option>
+                ))}
+              </select>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => confirmTarget(items.find((i) => i.id === targetingItemId)!)}
+                  disabled={!selectedTeamId || purchasing === targetingItemId}
+                  className="btn-primary flex-1"
+                >
+                  {purchasing === targetingItemId ? 'Setting trap…' : 'Confirm Trap'}
+                </button>
+                <button onClick={() => { setTargetingItemId(null); setSelectedTeamId(''); }} className="btn-ghost">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
           {items.length === 0 ? (
             <p className="text-gold-200/50 text-center py-8">No items available</p>
           ) : (
             items.map((item) => {
               const affordable = balance >= item.price;
+              const isTargeting = targetingItemId === item.id;
               return (
                 <div
                   key={item.id}
                   className={`rounded-xl border p-3 transition ${
-                    affordable
+                    affordable && !isTargeting
                       ? 'bg-maroon-800/50 border-gold-500/30'
                       : 'bg-maroon-950/50 border-gold-500/10 opacity-60'
-                  }`}
+                  } ${isTargeting ? 'hidden' : ''}`}
                 >
                   <div className="flex items-start gap-3">
                     <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-gold-400 to-marigold-500 flex items-center justify-center shrink-0">
@@ -96,7 +151,7 @@ export function PlayerShop({
                         }`}
                       >
                         {affordable ? (
-                          purchasing === item.id ? 'Buying…' : 'Buy'
+                          purchasing === item.id ? 'Buying…' : item.effect_type === 'kolam' ? 'Select Target' : 'Buy'
                         ) : (
                           <><Lock className="w-3.5 h-3.5" /> Not enough Diyas</>
                         )}

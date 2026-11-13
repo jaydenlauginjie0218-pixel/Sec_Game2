@@ -34,8 +34,10 @@ export const gameApi = {
     callAction('scan', { token, hostId, reward }),
   pinVerify: (pin: string, hostId: string, reward: number) =>
     callAction('pin-verify', { pin, hostId, reward }),
-  purchase: (teamId: string, shopItemId: string, sessionToken?: string) =>
-    callAction('purchase', { teamId, shopItemId, sessionToken }),
+  purchase: (teamId: string, shopItemId: string, sessionToken?: string, targetTeamId?: string) =>
+    callAction('purchase', { teamId, shopItemId, sessionToken, targetTeamId }),
+  solveKolam: (teamId: string, selectedTile: number, sessionToken?: string) =>
+    callAction('solve-kolam', { teamId, selectedTile, sessionToken }),
   adjust: (teamId: string, amount: number, reason: string) =>
     callAction('adjust', { teamId, amount, reason }),
   skipRest: (teamId: string, sessionToken?: string) => callAction('skip-rest', { teamId, sessionToken }),

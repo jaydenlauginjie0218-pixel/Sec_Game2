@@ -10,6 +10,8 @@ import { StationIcon } from '@/components/StationIcon';
 import { TILE_LABELS } from '@/lib/gameData';
 import { ShoppingBag, History, MapPin, Gift, Coins, ChevronDown, ChevronUp, Sparkles, LogOut, Users } from 'lucide-react';
 import { PlayerShop } from './PlayerShop';
+import { KolamPuzzle } from '@/components/KolamPuzzle';
+import type { PendingKolam } from '@/lib/types';
 
 export function PlayerGame({
   teamId,
@@ -42,6 +44,7 @@ export function PlayerGame({
   const [showHistory, setShowHistory] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rewardPopup, setRewardPopup] = useState<string | null>(null);
+  const [showKolam, setShowKolam] = useState(false);
   const stationsRef = useRef<Station[]>([]);
 
   const loadData = useCallback(async () => {
@@ -215,7 +218,8 @@ export function PlayerGame({
   const tileLabel = currentTile ? TILE_LABELS[currentTile.type] : null;
   const isPending = team.status === 'pending' && currentTurn;
   const isResting = team.status === 'resting';
-  const canRoll = team.status === 'idle' && !rolling && gameStatus === 'running';
+  const hasKolam = !!team.pending_kolam;
+  const canRoll = team.status === 'idle' && !rolling && gameStatus === 'running' && !hasKolam;
   const isWaiting = gameStatus !== 'running';
 
   return (
@@ -378,6 +382,20 @@ export function PlayerGame({
             </div>
           )}
 
+          {/* Kolam trap */}
+          {hasKolam && (
+            <div className="w-full text-center space-y-3 animate-pop-in">
+              <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-br from-flame-400 to-maroon-600 mb-1 border border-gold-300/30">
+                <Sparkles className="w-6 h-6 text-gold-200 animate-flame-flicker" />
+              </div>
+              <p className="text-gold-100 font-display font-bold text-lg">Trapped by a Kolam!</p>
+              <p className="text-gold-200/70 text-sm">{team.pending_kolam?.attacker_team_name} sent you a symmetrical puzzle. Solve it to roll again.</p>
+              <button onClick={() => setShowKolam(true)} className="btn-primary">
+                <Sparkles className="w-5 h-5" /> Solve Puzzle
+              </button>
+            </div>
+          )}
+
           {/* Roll button */}
           {canRoll && (
             <button onClick={handleRoll} className="btn-primary text-xl px-10 py-4 animate-flame-flicker">
@@ -452,6 +470,16 @@ export function PlayerGame({
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 festive-card-light px-6 py-4 shadow-2xl animate-pop-in">
           <p className="font-display font-bold text-maroon-900 text-center">{rewardPopup}</p>
         </div>
+      )}
+
+      {/* Kolam puzzle overlay */}
+      {showKolam && team.pending_kolam && (
+        <KolamPuzzle
+          teamId={teamId}
+          sessionToken={sessionToken}
+          pendingKolam={team.pending_kolam as PendingKolam}
+          onSolved={() => { setShowKolam(false); loadData(); }}
+        />
       )}
     </div>
   );
